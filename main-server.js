@@ -17,7 +17,6 @@ app.use(cors({
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
-app.use(express.static('public'));
 
 // Data storage
 const STORES_FILE = './data/stores.json';
@@ -70,23 +69,6 @@ app.get('/api/health', (req, res) => {
         message: 'Main Store Server is running on Replit!',
         timestamp: new Date().toISOString(),
         replit: true
-    });
-});
-
-// Root endpoint
-app.get('/', (req, res) => {
-    res.json({
-        message: '🏪 Main Store Server - Replit Edition',
-        endpoints: {
-            health: '/api/health',
-            stores: '/api/stores',
-            registerStore: '/api/stores/register (POST)',
-            products: '/api/products',
-            orders: '/api/orders',
-            debug: '/api/debug/stores'
-        },
-        note: 'Use the main URL without port number for store registration',
-        timestamp: new Date().toISOString()
     });
 });
 
@@ -190,6 +172,13 @@ app.get('/api/debug/stores', async (req, res) => {
     }
 });
 
+app.get('/api/test', (req, res) => {
+    res.json({ 
+        message: 'API is working!',
+        endpoint: '/api/stores/register is available',
+        timestamp: new Date().toISOString()
+    });
+});
 // Manual store addition endpoint
 app.post('/api/stores/manual-add', async (req, res) => {
     try {
@@ -306,25 +295,7 @@ app.post('/api/stores/sync-all', async (req, res) => {
 // Get all products
 app.get('/api/products', async (req, res) => {
     try {
-        const { storeId, category, search } = req.query;
-        let products = await readJSON(PRODUCTS_FILE);
-
-        if (storeId) {
-            products = products.filter(p => p.storeId === storeId);
-        }
-
-        if (category && category !== 'all') {
-            products = products.filter(p => p.category === category);
-        }
-
-        if (search) {
-            const searchTerm = search.toLowerCase();
-            products = products.filter(p => 
-                p.name.toLowerCase().includes(searchTerm) ||
-                p.category.toLowerCase().includes(searchTerm)
-            );
-        }
-
+        const products = await readJSON(PRODUCTS_FILE);
         res.json(products);
     } catch (error) {
         res.status(500).json({ error: 'Failed to fetch products' });
@@ -371,26 +342,72 @@ app.post('/api/orders', async (req, res) => {
         orders.push(order);
         await writeJSON(ORDERS_FILE, orders);
 
-        // Send to local store
-        try {
-            const storeResponse = await fetch(`${store.url}/api/orders`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(order)
-            });
-
-            if (!storeResponse.ok) {
-                throw new Error('Store rejected the order');
-            }
-        } catch (error) {
-            console.error('Failed to send order to store:', error);
-            // Continue anyway - the order is saved on main server
-        }
-
         res.status(201).json({ success: true, order });
     } catch (error) {
         res.status(500).json({ error: 'Failed to create order' });
     }
+});
+
+app.use(express.static('public'));
+
+app.get('/', (req, res) => {
+    res.json({
+        message: '🏪 Main Store Server - Replit Edition',
+        endpoints: {
+            health: '/api/health',
+            test: '/api/test',
+            stores: '/api/stores',
+            registerStore: '/api/stores/register (POST)',
+            debug: '/api/debug/stores',
+            products: '/api/products',
+            orders: '/api/orders'
+        },
+        note: 'API endpoints are working!',
+        timestamp: new Date().toISOString()
+    });
+});
+
+app.get('/stores', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public/stores.html'));
+});
+
+app.get('/orders', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public/orders.html'));
+});
+
+app.get('/store-management', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public/store-management.html'));
+});
+
+// 404 handler for API routes
+app.use('/api/*', (req, res) => {
+    res.status(404).json({ 
+        error: 'API endpoint not found',
+        path: req.originalUrl,
+        availableEndpoints: [
+            'GET  /api/health',
+            'GET  /api/test', 
+            'GET  /api/stores',
+            'POST /api/stores/register',
+            'GET  /api/debug/stores',
+            'POST /api/stores/manual-add',
+            'GET  /api/products',
+            'POST /api/orders'
+        ]
+    });
+});
+
+ensureDataDir().then(() => {
+    app.listen(PORT, '0.0.0.0', () => {
+        console.log(`🏪 Main server running on Replit!`);
+        console.log(`📍 Port: ${PORT}`);
+        console.log(`✅ Health check: /api/health`);
+        console.log(`✅ Test endpoint: /api/test`);
+        console.log(`✅ Store registration: /api/stores/register`);
+        console.log(`🛍️ Main store: /`);
+    });
+}).catch(error => {
+    console.error('Failed to start server:', error);
 });
 
 // Update order status
@@ -438,34 +455,4 @@ app.get('/api/orders', async (req, res) => {
     } catch (error) {
         res.status(500).json({ error: 'Failed to fetch orders' });
     }
-});
-
-// Serve main app
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public/index.html'));
-});
-
-app.get('/stores', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public/stores.html'));
-});
-
-app.get('/orders', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public/orders.html'));
-});
-
-app.get('/store-management', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public/store-management.html'));
-});
-
-// Initialize and start server - Important for Replit
-ensureDataDir().then(() => {
-    app.listen(PORT, '0.0.0.0', () => {
-        console.log(`🏪 Main server running on Replit!`);
-        console.log(`📍 Port: ${PORT}`);
-        console.log(`✅ Health check: https://4af9bf2d-c5bd-48fb-80ce-15447b934b94-00-znh979sraryh.worf.replit.dev/api/health`);
-        console.log(`📝 Store registration: https://4af9bf2d-c5bd-48fb-80ce-15447b934b94-00-znh979sraryh.worf.replit.dev/api/stores/register`);
-        console.log(`🛍️ Main store: https://4af9bf2d-c5bd-48fb-80ce-15447b934b94-00-znh979sraryh.worf.replit.dev/`);
-    });
-}).catch(error => {
-    console.error('Failed to start server:', error);
 });
