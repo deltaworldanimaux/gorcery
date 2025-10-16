@@ -5,11 +5,18 @@ const path = require('path');
 const fs = require('fs').promises;
 
 const app = express();
-const PORT = process.env.PORT || 5000;
+// Replit uses its own port, so we don't specify one
+const PORT = process.env.PORT || 3000;
 
-// Middleware
-app.use(cors());
-app.use(express.json());
+// Enhanced CORS for Replit
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true }));
 app.use(express.static('public'));
 
 // Data storage
@@ -23,22 +30,19 @@ async function ensureDataDir() {
         await fs.mkdir('./data', { recursive: true });
         
         // Initialize files if they don't exist
-        try {
-            await fs.access(STORES_FILE);
-        } catch {
-            await fs.writeFile(STORES_FILE, JSON.stringify([]));
-        }
-        
-        try {
-            await fs.access(ORDERS_FILE);
-        } catch {
-            await fs.writeFile(ORDERS_FILE, JSON.stringify([]));
-        }
-        
-        try {
-            await fs.access(PRODUCTS_FILE);
-        } catch {
-            await fs.writeFile(PRODUCTS_FILE, JSON.stringify([]));
+        const files = {
+            [STORES_FILE]: [],
+            [ORDERS_FILE]: [],
+            [PRODUCTS_FILE]: []
+        };
+
+        for (const [filePath, defaultValue] of Object.entries(files)) {
+            try {
+                await fs.access(filePath);
+            } catch {
+                await fs.writeFile(filePath, JSON.stringify(defaultValue, null, 2));
+                console.log(`Created ${filePath}`);
+            }
         }
     } catch (error) {
         console.error('Error initializing data directory:', error);
@@ -59,123 +63,83 @@ async function writeJSON(file, data) {
     await fs.writeFile(file, JSON.stringify(data, null, 2));
 }
 
-// Store registration
-// Enhanced store registration endpoint
-app.post('/api/stores/register', async (req, res) => {
-  try {
-    const storeInfo = req.body;
-    storeInfo.lastSeen = new Date().toISOString();
-    storeInfo.status = 'online';
-
-    console.log('📝 Store registration received:', {
-      storeId: storeInfo.storeId,
-      name: storeInfo.name,
-      url: storeInfo.url
-    });
-
-    const stores = await readJSON(STORES_FILE);
-    const existingIndex = stores.findIndex(s => s.storeId === storeInfo.storeId);
-
-    if (existingIndex > -1) {
-      stores[existingIndex] = { ...stores[existingIndex], ...storeInfo };
-      console.log('✅ Updated existing store:', storeInfo.storeId);
-    } else {
-      stores.push(storeInfo);
-      console.log('✅ Added new store:', storeInfo.storeId);
-    }
-
-    await writeJSON(STORES_FILE, stores);
-    
-    // Test store connectivity
-    try {
-      const testResponse = await fetch(`${storeInfo.url}/api/debug`, { timeout: 5000 });
-      if (testResponse.ok) {
-        storeInfo.connectivity = 'good';
-        console.log('✅ Store connectivity test passed');
-      } else {
-        storeInfo.connectivity = 'poor';
-        console.log('⚠️ Store connectivity test failed');
-      }
-    } catch (connectError) {
-      storeInfo.connectivity = 'failed';
-      console.log('❌ Store connectivity test error:', connectError.message);
-    }
-
+// Health check endpoint
+app.get('/api/health', (req, res) => {
     res.json({ 
-      success: true, 
-      store: storeInfo,
-      message: 'Store registered successfully'
+        status: 'ok', 
+        message: 'Main Store Server is running on Replit!',
+        timestamp: new Date().toISOString(),
+        replit: true
     });
-  } catch (error) {
-    console.error('❌ Store registration error:', error);
-    res.status(500).json({ 
-      error: 'Failed to register store',
-      details: error.message 
-    });
-  }
 });
 
-// Debug endpoint to see all stores
-app.get('/api/debug/stores', async (req, res) => {
-  try {
-    const stores = await readJSON(STORES_FILE);
-    const storesWithStatus = stores.map(store => {
-      const lastSeen = new Date(store.lastSeen);
-      const minutesAgo = (Date.now() - lastSeen) / (1000 * 60);
-      return {
-        ...store,
-        status: minutesAgo < 5 ? 'online' : 'offline',
-        minutesSinceLastSeen: Math.floor(minutesAgo)
-      };
-    });
-
+// Root endpoint
+app.get('/', (req, res) => {
     res.json({
-      totalStores: storesWithStatus.length,
-      onlineStores: storesWithStatus.filter(s => s.status === 'online').length,
-      stores: storesWithStatus
+        message: '🏪 Main Store Server - Replit Edition',
+        endpoints: {
+            health: '/api/health',
+            stores: '/api/stores',
+            registerStore: '/api/stores/register (POST)',
+            products: '/api/products',
+            orders: '/api/orders',
+            debug: '/api/debug/stores'
+        },
+        note: 'Use the main URL without port number for store registration',
+        timestamp: new Date().toISOString()
     });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
 });
 
-// Manual store addition endpoint
-app.post('/api/stores/manual-add', async (req, res) => {
-  try {
-    const { storeId, name, location, url } = req.body;
-    
-    if (!storeId || !name || !url) {
-      return res.status(400).json({ error: 'storeId, name, and url are required' });
+// Store registration - Enhanced for Replit
+app.post('/api/stores/register', async (req, res) => {
+    try {
+        const storeInfo = req.body;
+        
+        // Validate required fields
+        if (!storeInfo.storeId || !storeInfo.name || !storeInfo.url) {
+            return res.status(400).json({ 
+                error: 'Missing required fields: storeId, name, and url are required' 
+            });
+        }
+
+        storeInfo.lastSeen = new Date().toISOString();
+        storeInfo.status = 'online';
+        storeInfo.registeredAt = storeInfo.registeredAt || new Date().toISOString();
+
+        console.log('📝 Store registration received on Replit:', {
+            storeId: storeInfo.storeId,
+            name: storeInfo.name,
+            url: storeInfo.url
+        });
+
+        const stores = await readJSON(STORES_FILE);
+        const existingIndex = stores.findIndex(s => s.storeId === storeInfo.storeId);
+
+        if (existingIndex > -1) {
+            stores[existingIndex] = { ...stores[existingIndex], ...storeInfo };
+            console.log('✅ Updated existing store:', storeInfo.storeId);
+        } else {
+            stores.push(storeInfo);
+            console.log('✅ Added new store:', storeInfo.storeId);
+        }
+
+        await writeJSON(STORES_FILE, stores);
+        
+        res.json({ 
+            success: true, 
+            store: storeInfo,
+            message: 'Store registered successfully with Replit server',
+            totalStores: stores.length,
+            server: 'replit'
+        });
+        
+    } catch (error) {
+        console.error('❌ Store registration error:', error);
+        res.status(500).json({ 
+            error: 'Failed to register store',
+            details: error.message 
+        });
     }
-
-    const storeInfo = {
-      storeId,
-      name,
-      location: location || 'Unknown Location',
-      url,
-      lastSeen: new Date().toISOString(),
-      status: 'online'
-    };
-
-    const stores = await readJSON(STORES_FILE);
-    const existingIndex = stores.findIndex(s => s.storeId === storeId);
-
-    if (existingIndex > -1) {
-      stores[existingIndex] = storeInfo;
-    } else {
-      stores.push(storeInfo);
-    }
-
-    await writeJSON(STORES_FILE, stores);
-    
-    res.json({ 
-      success: true, 
-      message: 'Store added manually',
-      store: storeInfo
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
 });
 
 // Get all stores
@@ -183,18 +147,86 @@ app.get('/api/stores', async (req, res) => {
     try {
         const stores = await readJSON(STORES_FILE);
         
-        // Update online status based on last seen (5 minutes threshold)
+        // Update online status based on last seen (10 minutes threshold for Replit)
         const now = new Date();
         stores.forEach(store => {
             const lastSeen = new Date(store.lastSeen);
             const minutesAgo = (now - lastSeen) / (1000 * 60);
-            store.status = minutesAgo < 5 ? 'online' : 'offline';
+            store.status = minutesAgo < 10 ? 'online' : 'offline';
+            store.lastSeenMinutes = Math.floor(minutesAgo);
         });
 
         await writeJSON(STORES_FILE, stores);
         res.json(stores);
     } catch (error) {
         res.status(500).json({ error: 'Failed to fetch stores' });
+    }
+});
+
+// Debug endpoint to see all stores
+app.get('/api/debug/stores', async (req, res) => {
+    try {
+        const stores = await readJSON(STORES_FILE);
+        const storesWithStatus = stores.map(store => {
+            const lastSeen = new Date(store.lastSeen);
+            const minutesAgo = (Date.now() - lastSeen) / (1000 * 60);
+            return {
+                ...store,
+                status: minutesAgo < 10 ? 'online' : 'offline',
+                minutesSinceLastSeen: Math.floor(minutesAgo),
+                server: 'replit'
+            };
+        });
+
+        res.json({
+            server: 'Replit Main Server',
+            totalStores: storesWithStatus.length,
+            onlineStores: storesWithStatus.filter(s => s.status === 'online').length,
+            replitUrl: process.env.REPLIT_URL || 'https://your-replit-url.repl.co',
+            stores: storesWithStatus
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Manual store addition endpoint
+app.post('/api/stores/manual-add', async (req, res) => {
+    try {
+        const { storeId, name, location, url } = req.body;
+        
+        if (!storeId || !name || !url) {
+            return res.status(400).json({ error: 'storeId, name, and url are required' });
+        }
+
+        const storeInfo = {
+            storeId,
+            name,
+            location: location || 'Unknown Location',
+            url,
+            lastSeen: new Date().toISOString(),
+            status: 'online',
+            addedManually: true
+        };
+
+        const stores = await readJSON(STORES_FILE);
+        const existingIndex = stores.findIndex(s => s.storeId === storeId);
+
+        if (existingIndex > -1) {
+            stores[existingIndex] = storeInfo;
+        } else {
+            stores.push(storeInfo);
+        }
+
+        await writeJSON(STORES_FILE, stores);
+        
+        res.json({ 
+            success: true, 
+            message: 'Store added manually to Replit server',
+            store: storeInfo
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
     }
 });
 
@@ -420,15 +452,20 @@ app.get('/stores', (req, res) => {
 app.get('/orders', (req, res) => {
     res.sendFile(path.join(__dirname, 'public/orders.html'));
 });
+
 app.get('/store-management', (req, res) => {
     res.sendFile(path.join(__dirname, 'public/store-management.html'));
 });
 
-
-// Initialize and start server
+// Initialize and start server - Important for Replit
 ensureDataDir().then(() => {
-    app.listen(PORT, () => {
-        console.log(`🏪 Main server running on port ${PORT}`);
-        console.log(`📍 Access the main dashboard: http://localhost:${PORT}`);
+    app.listen(PORT, '0.0.0.0', () => {
+        console.log(`🏪 Main server running on Replit!`);
+        console.log(`📍 Port: ${PORT}`);
+        console.log(`✅ Health check: https://4af9bf2d-c5bd-48fb-80ce-15447b934b94-00-znh979sraryh.worf.replit.dev/api/health`);
+        console.log(`📝 Store registration: https://4af9bf2d-c5bd-48fb-80ce-15447b934b94-00-znh979sraryh.worf.replit.dev/api/stores/register`);
+        console.log(`🛍️ Main store: https://4af9bf2d-c5bd-48fb-80ce-15447b934b94-00-znh979sraryh.worf.replit.dev/`);
     });
+}).catch(error => {
+    console.error('Failed to start server:', error);
 });
