@@ -5,7 +5,6 @@ const path = require('path');
 const fs = require('fs').promises;
 
 const app = express();
-// Replit uses its own port, so we don't specify one
 const PORT = process.env.PORT || 3000;
 
 // Enhanced CORS for Replit
@@ -62,6 +61,8 @@ async function writeJSON(file, data) {
     await fs.writeFile(file, JSON.stringify(data, null, 2));
 }
 
+// ========== API ROUTES ==========
+
 // Health check endpoint
 app.get('/api/health', (req, res) => {
     res.json({ 
@@ -72,27 +73,23 @@ app.get('/api/health', (req, res) => {
     });
 });
 
-// Store registration - Enhanced for Replit
+// Store registration - FIXED ENDPOINT
 app.post('/api/stores/register', async (req, res) => {
     try {
         const storeInfo = req.body;
         
+        console.log('📝 Store registration received:', storeInfo);
+        
         // Validate required fields
-        if (!storeInfo.storeId || !storeInfo.name || !storeInfo.url) {
+        if (!storeInfo.storeId || !storeInfo.name) {
             return res.status(400).json({ 
-                error: 'Missing required fields: storeId, name, and url are required' 
+                error: 'Missing required fields: storeId and name are required' 
             });
         }
 
         storeInfo.lastSeen = new Date().toISOString();
         storeInfo.status = 'online';
-        storeInfo.registeredAt = storeInfo.registeredAt || new Date().toISOString();
-
-        console.log('📝 Store registration received on Replit:', {
-            storeId: storeInfo.storeId,
-            name: storeInfo.name,
-            url: storeInfo.url
-        });
+        storeInfo.registeredAt = new Date().toISOString();
 
         const stores = await readJSON(STORES_FILE);
         const existingIndex = stores.findIndex(s => s.storeId === storeInfo.storeId);
@@ -111,8 +108,7 @@ app.post('/api/stores/register', async (req, res) => {
             success: true, 
             store: storeInfo,
             message: 'Store registered successfully with Replit server',
-            totalStores: stores.length,
-            server: 'replit'
+            totalStores: stores.length
         });
         
     } catch (error) {
@@ -129,13 +125,12 @@ app.get('/api/stores', async (req, res) => {
     try {
         const stores = await readJSON(STORES_FILE);
         
-        // Update online status based on last seen (10 minutes threshold for Replit)
+        // Update online status based on last seen
         const now = new Date();
         stores.forEach(store => {
             const lastSeen = new Date(store.lastSeen);
             const minutesAgo = (now - lastSeen) / (1000 * 60);
             store.status = minutesAgo < 10 ? 'online' : 'offline';
-            store.lastSeenMinutes = Math.floor(minutesAgo);
         });
 
         await writeJSON(STORES_FILE, stores);
@@ -155,8 +150,7 @@ app.get('/api/debug/stores', async (req, res) => {
             return {
                 ...store,
                 status: minutesAgo < 10 ? 'online' : 'offline',
-                minutesSinceLastSeen: Math.floor(minutesAgo),
-                server: 'replit'
+                minutesSinceLastSeen: Math.floor(minutesAgo)
             };
         });
 
@@ -164,7 +158,6 @@ app.get('/api/debug/stores', async (req, res) => {
             server: 'Replit Main Server',
             totalStores: storesWithStatus.length,
             onlineStores: storesWithStatus.filter(s => s.status === 'online').length,
-            replitUrl: process.env.REPLIT_URL || 'https://your-replit-url.repl.co',
             stores: storesWithStatus
         });
     } catch (error) {
@@ -172,30 +165,22 @@ app.get('/api/debug/stores', async (req, res) => {
     }
 });
 
-app.get('/api/test', (req, res) => {
-    res.json({ 
-        message: 'API is working!',
-        endpoint: '/api/stores/register is available',
-        timestamp: new Date().toISOString()
-    });
-});
-// Manual store addition endpoint
+// Manual store addition
 app.post('/api/stores/manual-add', async (req, res) => {
     try {
         const { storeId, name, location, url } = req.body;
         
-        if (!storeId || !name || !url) {
-            return res.status(400).json({ error: 'storeId, name, and url are required' });
+        if (!storeId || !name) {
+            return res.status(400).json({ error: 'storeId and name are required' });
         }
 
         const storeInfo = {
             storeId,
             name,
             location: location || 'Unknown Location',
-            url,
+            url: url || `http://localhost:3000`,
             lastSeen: new Date().toISOString(),
-            status: 'online',
-            addedManually: true
+            status: 'online'
         };
 
         const stores = await readJSON(STORES_FILE);
@@ -211,12 +196,21 @@ app.post('/api/stores/manual-add', async (req, res) => {
         
         res.json({ 
             success: true, 
-            message: 'Store added manually to Replit server',
+            message: 'Store added manually',
             store: storeInfo
         });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
+});
+
+// Test endpoint
+app.get('/api/test', (req, res) => {
+    res.json({ 
+        message: 'API is working!',
+        endpoint: '/api/stores/register is available',
+        timestamp: new Date().toISOString()
+    });
 });
 
 // Sync products from a store
@@ -253,45 +247,6 @@ app.post('/api/stores/:storeId/sync-products', async (req, res) => {
     }
 });
 
-// Sync all stores products
-app.post('/api/stores/sync-all', async (req, res) => {
-    try {
-        const stores = await readJSON(STORES_FILE);
-        const onlineStores = stores.filter(s => s.status === 'online');
-        let totalProducts = 0;
-        let syncedStores = 0;
-
-        for (const store of onlineStores) {
-            try {
-                const response = await fetch(`${store.url}/api/products`);
-                if (response.ok) {
-                    const products = await response.json();
-                    
-                    const allProducts = await readJSON(PRODUCTS_FILE);
-                    const otherStoreProducts = allProducts.filter(p => p.storeId !== store.storeId);
-                    const updatedProducts = [...otherStoreProducts, ...products];
-                    
-                    await writeJSON(PRODUCTS_FILE, updatedProducts);
-                    
-                    totalProducts += products.length;
-                    syncedStores++;
-                }
-            } catch (error) {
-                console.error(`Failed to sync store ${store.name}:`, error.message);
-            }
-        }
-
-        res.json({ 
-            success: true, 
-            syncedStores,
-            totalProducts,
-            message: `تم مزامنة ${syncedStores} متاجر بـ ${totalProducts} منتج`
-        });
-    } catch (error) {
-        res.status(500).json({ error: 'Failed to sync all stores' });
-    }
-});
-
 // Get all products
 app.get('/api/products', async (req, res) => {
     try {
@@ -299,17 +254,6 @@ app.get('/api/products', async (req, res) => {
         res.json(products);
     } catch (error) {
         res.status(500).json({ error: 'Failed to fetch products' });
-    }
-});
-
-// Get product categories
-app.get('/api/categories', async (req, res) => {
-    try {
-        const products = await readJSON(PRODUCTS_FILE);
-        const categories = [...new Set(products.map(p => p.category).filter(Boolean))];
-        res.json(categories);
-    } catch (error) {
-        res.status(500).json({ error: 'Failed to fetch categories' });
     }
 });
 
@@ -348,8 +292,20 @@ app.post('/api/orders', async (req, res) => {
     }
 });
 
+// Get orders
+app.get('/api/orders', async (req, res) => {
+    try {
+        const orders = await readJSON(ORDERS_FILE);
+        res.json(orders);
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to fetch orders' });
+    }
+});
+
+// ========== STATIC FILES ==========
 app.use(express.static('public'));
 
+// HTML routes
 app.get('/', (req, res) => {
     res.json({
         message: '🏪 Main Store Server - Replit Edition',
@@ -379,24 +335,52 @@ app.get('/store-management', (req, res) => {
     res.sendFile(path.join(__dirname, 'public/store-management.html'));
 });
 
-// 404 handler for API routes
-app.use('/api/*', (req, res) => {
-    res.status(404).json({ 
-        error: 'API endpoint not found',
-        path: req.originalUrl,
-        availableEndpoints: [
-            'GET  /api/health',
-            'GET  /api/test', 
-            'GET  /api/stores',
-            'POST /api/stores/register',
-            'GET  /api/debug/stores',
-            'POST /api/stores/manual-add',
-            'GET  /api/products',
-            'POST /api/orders'
-        ]
+// ========== ERROR HANDLING ==========
+
+// 404 handler for all other routes - FIXED: Use regex instead of wildcard
+app.use((req, res) => {
+    if (req.path.startsWith('/api/')) {
+        // API 404
+        res.status(404).json({ 
+            error: 'API endpoint not found',
+            path: req.originalUrl,
+            availableEndpoints: [
+                'GET  /api/health',
+                'GET  /api/test', 
+                'GET  /api/stores',
+                'POST /api/stores/register',
+                'GET  /api/debug/stores',
+                'POST /api/stores/manual-add',
+                'GET  /api/products',
+                'POST /api/orders',
+                'GET  /api/orders'
+            ]
+        });
+    } else {
+        // HTML 404
+        res.status(404).json({
+            error: 'Page not found',
+            path: req.originalUrl,
+            availablePages: [
+                '/',
+                '/stores', 
+                '/orders',
+                '/store-management'
+            ]
+        });
+    }
+});
+
+// Global error handler
+app.use((error, req, res, next) => {
+    console.error('Unhandled error:', error);
+    res.status(500).json({ 
+        error: 'Internal server error',
+        message: error.message 
     });
 });
 
+// Initialize and start server
 ensureDataDir().then(() => {
     app.listen(PORT, '0.0.0.0', () => {
         console.log(`🏪 Main server running on Replit!`);
@@ -408,51 +392,4 @@ ensureDataDir().then(() => {
     });
 }).catch(error => {
     console.error('Failed to start server:', error);
-});
-
-// Update order status
-app.put('/api/orders/:orderId/status', async (req, res) => {
-    try {
-        const { orderId } = req.params;
-        const { status, storeId, notes } = req.body;
-
-        const orders = await readJSON(ORDERS_FILE);
-        const orderIndex = orders.findIndex(o => o.orderId === orderId);
-
-        if (orderIndex === -1) {
-            return res.status(404).json({ error: 'Order not found' });
-        }
-
-        orders[orderIndex].status = status;
-        orders[orderIndex].notes = notes || orders[orderIndex].notes;
-        orders[orderIndex].updatedAt = new Date().toISOString();
-
-        await writeJSON(ORDERS_FILE, orders);
-        res.json({ success: true, order: orders[orderIndex] });
-    } catch (error) {
-        res.status(500).json({ error: 'Failed to update order status' });
-    }
-});
-
-// Get orders
-app.get('/api/orders', async (req, res) => {
-    try {
-        const { storeId, status } = req.query;
-        let orders = await readJSON(ORDERS_FILE);
-
-        if (storeId) {
-            orders = orders.filter(o => o.storeId === storeId);
-        }
-
-        if (status && status !== 'all') {
-            orders = orders.filter(o => o.status === status);
-        }
-
-        // Sort by creation date (newest first)
-        orders.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-
-        res.json(orders);
-    } catch (error) {
-        res.status(500).json({ error: 'Failed to fetch orders' });
-    }
 });
