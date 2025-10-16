@@ -60,26 +60,122 @@ async function writeJSON(file, data) {
 }
 
 // Store registration
+// Enhanced store registration endpoint
 app.post('/api/stores/register', async (req, res) => {
-    try {
-        const storeInfo = req.body;
-        storeInfo.lastSeen = new Date().toISOString();
-        storeInfo.status = 'online';
+  try {
+    const storeInfo = req.body;
+    storeInfo.lastSeen = new Date().toISOString();
+    storeInfo.status = 'online';
 
-        const stores = await readJSON(STORES_FILE);
-        const existingIndex = stores.findIndex(s => s.storeId === storeInfo.storeId);
+    console.log('📝 Store registration received:', {
+      storeId: storeInfo.storeId,
+      name: storeInfo.name,
+      url: storeInfo.url
+    });
 
-        if (existingIndex > -1) {
-            stores[existingIndex] = { ...stores[existingIndex], ...storeInfo };
-        } else {
-            stores.push(storeInfo);
-        }
+    const stores = await readJSON(STORES_FILE);
+    const existingIndex = stores.findIndex(s => s.storeId === storeInfo.storeId);
 
-        await writeJSON(STORES_FILE, stores);
-        res.json({ success: true, store: storeInfo });
-    } catch (error) {
-        res.status(500).json({ error: 'Failed to register store' });
+    if (existingIndex > -1) {
+      stores[existingIndex] = { ...stores[existingIndex], ...storeInfo };
+      console.log('✅ Updated existing store:', storeInfo.storeId);
+    } else {
+      stores.push(storeInfo);
+      console.log('✅ Added new store:', storeInfo.storeId);
     }
+
+    await writeJSON(STORES_FILE, stores);
+    
+    // Test store connectivity
+    try {
+      const testResponse = await fetch(`${storeInfo.url}/api/debug`, { timeout: 5000 });
+      if (testResponse.ok) {
+        storeInfo.connectivity = 'good';
+        console.log('✅ Store connectivity test passed');
+      } else {
+        storeInfo.connectivity = 'poor';
+        console.log('⚠️ Store connectivity test failed');
+      }
+    } catch (connectError) {
+      storeInfo.connectivity = 'failed';
+      console.log('❌ Store connectivity test error:', connectError.message);
+    }
+
+    res.json({ 
+      success: true, 
+      store: storeInfo,
+      message: 'Store registered successfully'
+    });
+  } catch (error) {
+    console.error('❌ Store registration error:', error);
+    res.status(500).json({ 
+      error: 'Failed to register store',
+      details: error.message 
+    });
+  }
+});
+
+// Debug endpoint to see all stores
+app.get('/api/debug/stores', async (req, res) => {
+  try {
+    const stores = await readJSON(STORES_FILE);
+    const storesWithStatus = stores.map(store => {
+      const lastSeen = new Date(store.lastSeen);
+      const minutesAgo = (Date.now() - lastSeen) / (1000 * 60);
+      return {
+        ...store,
+        status: minutesAgo < 5 ? 'online' : 'offline',
+        minutesSinceLastSeen: Math.floor(minutesAgo)
+      };
+    });
+
+    res.json({
+      totalStores: storesWithStatus.length,
+      onlineStores: storesWithStatus.filter(s => s.status === 'online').length,
+      stores: storesWithStatus
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Manual store addition endpoint
+app.post('/api/stores/manual-add', async (req, res) => {
+  try {
+    const { storeId, name, location, url } = req.body;
+    
+    if (!storeId || !name || !url) {
+      return res.status(400).json({ error: 'storeId, name, and url are required' });
+    }
+
+    const storeInfo = {
+      storeId,
+      name,
+      location: location || 'Unknown Location',
+      url,
+      lastSeen: new Date().toISOString(),
+      status: 'online'
+    };
+
+    const stores = await readJSON(STORES_FILE);
+    const existingIndex = stores.findIndex(s => s.storeId === storeId);
+
+    if (existingIndex > -1) {
+      stores[existingIndex] = storeInfo;
+    } else {
+      stores.push(storeInfo);
+    }
+
+    await writeJSON(STORES_FILE, stores);
+    
+    res.json({ 
+      success: true, 
+      message: 'Store added manually',
+      store: storeInfo
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Get all stores
@@ -324,6 +420,10 @@ app.get('/stores', (req, res) => {
 app.get('/orders', (req, res) => {
     res.sendFile(path.join(__dirname, 'public/orders.html'));
 });
+app.get('/store-management', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public/store-management.html'));
+});
+
 
 // Initialize and start server
 ensureDataDir().then(() => {

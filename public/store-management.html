@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>إدارة المتاجر - النظام الرئيسي</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f7fafc;
+            padding: 20px;
+            color: #2d3748;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 15px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .actions {
+            background: white;
+            padding: 20px;
+            border-radius: 15px;
+            margin-bottom: 20px;
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+
+        .btn-success {
+            background: #48bb78;
+            color: white;
+        }
+
+        .btn-warning {
+            background: #ed8936;
+            color: white;
+        }
+
+        .stores-grid {
+            display: grid;
+            gap: 20px;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+        }
+
+        .store-card {
+            background: white;
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            border-right: 4px solid;
+        }
+
+        .store-online {
+            border-right-color: #48bb78;
+        }
+
+        .store-offline {
+            border-right-color: #f56565;
+        }
+
+        .store-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .store-name {
+            font-weight: bold;
+            font-size: 18px;
+        }
+
+        .store-status {
+            padding: 5px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .status-online {
+            background: #c6f6d5;
+            color: #276749;
+        }
+
+        .status-offline {
+            background: #fed7d7;
+            color: #c53030;
+        }
+
+        .store-info {
+            margin-bottom: 15px;
+        }
+
+        .store-info div {
+            margin-bottom: 5px;
+        }
+
+        .manual-add-form {
+            background: white;
+            padding: 20px;
+            border-radius: 15px;
+            margin-top: 20px;
+            display: none;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 16px;
+        }
+
+        .debug-info {
+            background: #f7fafc;
+            padding: 15px;
+            border-radius: 10px;
+            margin-top: 20px;
+            font-family: monospace;
+            font-size: 14px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🏪 إدارة المتاجر المتصلة</h1>
+            <p>إجمالي المتاجر: <span id="totalStores">0</span> | متصل: <span id="onlineStores">0</span></p>
+        </div>
+
+        <div class="actions">
+            <button class="btn btn-primary" onclick="loadStores()">🔄 تحديث</button>
+            <button class="btn btn-success" onclick="syncAllStores()">🔄 مزامنة الكل</button>
+            <button class="btn btn-warning" onclick="toggleManualForm()">➕ إضافة متجر يدوياً</button>
+            <button class="btn" onclick="showDebugInfo()">🐛 معلومات التصحيح</button>
+        </div>
+
+        <div class="manual-add-form" id="manualForm">
+            <h3>إضافة متجر يدوياً</h3>
+            <form onsubmit="addStoreManually(event)">
+                <div class="form-group">
+                    <label class="form-label">معرف المتجر (Store ID)</label>
+                    <input type="text" class="form-input" id="manualStoreId" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">اسم المتجر</label>
+                    <input type="text" class="form-input" id="manualStoreName" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">الموقع</label>
+                    <input type="text" class="form-input" id="manualStoreLocation">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">رابط المتجر (URL)</label>
+                    <input type="url" class="form-input" id="manualStoreUrl" required>
+                </div>
+                <button type="submit" class="btn btn-success">إضافة المتجر</button>
+                <button type="button" class="btn" onclick="toggleManualForm()">إلغاء</button>
+            </form>
+        </div>
+
+        <div class="stores-grid" id="storesContainer">
+            <!-- Stores will be loaded here -->
+        </div>
+
+        <div class="debug-info" id="debugInfo" style="display: none;">
+            <!-- Debug info will be loaded here -->
+        </div>
+    </div>
+
+    <script>
+        async function loadStores() {
+            try {
+                const response = await fetch('/api/stores');
+                const stores = await response.json();
+                
+                document.getElementById('totalStores').textContent = stores.length;
+                document.getElementById('onlineStores').textContent = stores.filter(s => s.status === 'online').length;
+
+                const container = document.getElementById('storesContainer');
+                
+                if (stores.length === 0) {
+                    container.innerHTML = '<div style="text-align: center; padding: 40px; color: #718096;">لا توجد متاجر متصلة</div>';
+                    return;
+                }
+
+                container.innerHTML = stores.map(store => `
+                    <div class="store-card store-${store.status}">
+                        <div class="store-header">
+                            <div class="store-name">${store.name}</div>
+                            <div class="store-status status-${store.status}">
+                                ${store.status === 'online' ? '🟢 متصل' : '🔴 غير متصل'}
+                            </div>
+                        </div>
+                        <div class="store-info">
+                            <div><strong>المعرف:</strong> ${store.storeId}</div>
+                            <div><strong>الموقع:</strong> ${store.location}</div>
+                            <div><strong>الرابط:</strong> ${store.url}</div>
+                            <div><strong>آخر ظهور:</strong> ${new Date(store.lastSeen).toLocaleString('ar-EG')}</div>
+                            ${store.productsCount ? `<div><strong>المنتجات:</strong> ${store.productsCount}</div>` : ''}
+                        </div>
+                        <div style="display: flex; gap: 10px; margin-top: 15px;">
+                            <button class="btn btn-primary" onclick="syncStore('${store.storeId}')" ${store.status === 'offline' ? 'disabled' : ''}>
+                                مزامنة المنتجات
+                            </button>
+                            <button class="btn" onclick="testStore('${store.url}')">
+                                اختبار الاتصال
+                            </button>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (error) {
+                console.error('Error loading stores:', error);
+                alert('فشل في تحميل المتاجر');
+            }
+        }
+
+        async function syncStore(storeId) {
+            try {
+                const response = await fetch(`/api/stores/${storeId}/sync-products`, {
+                    method: 'POST'
+                });
+                const result = await response.json();
+                alert(result.message || 'تمت المزامنة بنجاح');
+                loadStores();
+            } catch (error) {
+                alert('فشل في مزامنة المتجر');
+            }
+        }
+
+        async function syncAllStores() {
+            try {
+                const response = await fetch('/api/stores/sync-all', {
+                    method: 'POST'
+                });
+                const result = await response.json();
+                alert(result.message);
+                loadStores();
+            } catch (error) {
+                alert('فشل في مزامنة جميع المتاجر');
+            }
+        }
+
+        function toggleManualForm() {
+            const form = document.getElementById('manualForm');
+            form.style.display = form.style.display === 'none' ? 'block' : 'none';
+        }
+
+        async function addStoreManually(event) {
+            event.preventDefault();
+            
+            const storeData = {
+                storeId: document.getElementById('manualStoreId').value,
+                name: document.getElementById('manualStoreName').value,
+                location: document.getElementById('manualStoreLocation').value,
+                url: document.getElementById('manualStoreUrl').value
+            };
+
+            try {
+                const response = await fetch('/api/stores/manual-add', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(storeData)
+                });
+
+                if (response.ok) {
+                    alert('تم إضافة المتجر بنجاح');
+                    toggleManualForm();
+                    loadStores();
+                } else {
+                    alert('فشل في إضافة المتجر');
+                }
+            } catch (error) {
+                alert('خطأ في الإضافة: ' + error.message);
+            }
+        }
+
+        async function testStore(storeUrl) {
+            try {
+                const response = await fetch(`${storeUrl}/api/debug`);
+                if (response.ok) {
+                    const data = await response.json();
+                    alert(`✅ المتجر يعمل بشكل جيد\n\nالمعرف: ${data.storeId}\nالاسم: ${data.name}\nالمنتجات: ${data.productsCount}`);
+                } else {
+                    alert('❌ لا يمكن الاتصال بالمتجر');
+                }
+            } catch (error) {
+                alert('❌ خطأ في الاتصال: ' + error.message);
+            }
+        }
+
+        async function showDebugInfo() {
+            try {
+                const response = await fetch('/api/debug/stores');
+                const data = await response.json();
+                
+                const debugInfo = document.getElementById('debugInfo');
+                debugInfo.style.display = 'block';
+                debugInfo.innerHTML = `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+            } catch (error) {
+                alert('فشل في جلب معلومات التصحيح');
+            }
+        }
+
+        // Initial load
+        loadStores();
+        
+        // Auto-refresh every 30 seconds
+        setInterval(loadStores, 30000);
+    </script>
+</body>
+</html>
