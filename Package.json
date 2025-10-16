@@ -1,0 +1,18 @@
+{
+  "name": "main-store-server",
+  "version": "1.0.0",
+  "description": "Main server for multi-store management",
+  "main": "main-server.js",
+  "scripts": {
+    "start": "node main-server.js",
+    "dev": "nodemon main-server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
+}
